@@ -1,33 +1,69 @@
-var asapReady = false;
+document.addEventListener("DOMContentLoaded", function () {
+    const tabs = document.querySelectorAll(".tab");
+    const panels = document.querySelectorAll(".panelview");
 
-window.ZohoDeskAsapReady(function() {
-    asapReady = true;
-});
+    tabs.forEach(tab => {
+        tab.addEventListener("click", function () {
+            tabs.forEach(t => t.classList.remove("active"));
+            panels.forEach(p => p.classList.remove("active"));
 
-document.querySelectorAll('.tab').forEach(function(tab) {
-    tab.addEventListener('click', function() {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.panelview').forEach(p => p.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+            this.classList.add("active");
 
-        if (tab.dataset.tab === 'articles') {
-            openArticles();
-        } else if (window.ZohoDeskAsap && asapReady) {
-            ZohoDeskAsap.invoke('close');
-        }
+            const panel = document.getElementById("tab-" + this.dataset.tab);
+
+            if (panel) {
+                panel.classList.add("active");
+            }
+
+            if (this.dataset.tab === "articles") {
+                loadArticles();
+            }
+        });
     });
 });
 
-function openArticles() {
-    if (window.ZohoDeskAsap && asapReady) {
-        ZohoDeskAsap.invoke('open');
-        try {
-            ZohoDeskAsap.invoke('routeTo', { page: 'kb.category.list' });
-        } catch (e) { /* older ASAP versions may not support routeTo */ }
-        var el = document.getElementById('kbStatus');
-        if (el) el.textContent = 'Articles opened above.';
-    } else {
-        setTimeout(openArticles, 300);
-    }
+function loadArticles() {
+    const status = document.getElementById("kbStatus");
+
+    status.innerHTML = "Loading articles...";
+
+    fetch("api/getArticles.php")
+        .then(response => response.json())
+        .then(result => {
+            if (result.error) {
+                status.innerHTML = "Error: " + result.error;
+                return;
+            }
+
+            if (!result.data || result.data.length === 0) {
+                status.innerHTML = "No articles found.";
+                return;
+            }
+
+            let html = "";
+
+            result.data.forEach(article => {
+                html += `
+                    <div class="article-card">
+                        <h3>${article.title}</h3>
+                        <p>${article.summary || "No summary available."}</p>
+
+                        <div class="article-meta">
+                            <span>Views: ${article.viewCount}</span>
+                            <span>Likes: ${article.likeCount}</span>
+                        </div>
+
+                        <a href="article.html?id=${article.id}" class="article-link">
+                            Read article
+                        </a>
+                    </div>
+                `;
+            });
+
+            status.innerHTML = html;
+        })
+        .catch(error => {
+            console.error(error);
+            status.innerHTML = "Unable to load articles.";
+        });
 }
