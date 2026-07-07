@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Support Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script type="text/javascript" id="zohodeskasap">
+        var d = document;
+        s = d.createElement("script"), s.type = "text/javascript", s.id = "zohodeskasapscript", s.defer = !0, s.src = "https://desk.zoho.in/portal/api/web/asapApp/268212000000380029?orgId=60076426050", t = d.getElementsByTagName("script")[0], t.parentNode.insertBefore(s, t), window.ZohoDeskAsapReady = function(s) {
+            var e = window.ZohoDeskAsap__asyncalls = window.ZohoDeskAsap__asyncalls || [];
+            window.ZohoDeskAsapReadyStatus ? (s && e.push(s), e.forEach(s => s && s()), window.ZohoDeskAsap__asyncalls = null) : s && e.push(s)
+        };
+        window.ZohoDeskAsapReady(function() {
+            // Only show the Knowledge Base tab inside the widget
+            ZohoDeskAsap.set("app.tabs.hideTabs", ["Home", "Community", "Ticket", "Guided Conversations", "Answer Bot", "SalesIQ Chat", "Business Messaging", "Submit Ticket", "Add Topic"]);
+        });
+    </script>
+</head>
+<body>
+    <header>
+        <div class="wrap">
+            <div class="logo"><span class="dot"></span>Student Support Portal</div>
+            <div class="who" id="whoBox">
+                <span id="whoLabel">Not signed in</span>
+                <button id="logoutBtn" style="display:none;">Log out</button>
+            </div>
+        </div>
+    </header>
+    <div id="authScreen">
+        <div class="wrap">
+            <div class="auth-wrap">
+                <div class="eyebrow">Access required</div>
+                <h1>Sign in to continue</h1>
+                <p class="sub">Create an account or sign in with your college email to raise tickets and browse help articles.</p>
+                <div class="panel">
+                    <div class="auth-switch">
+                        <button class="active" data-auth="signin">Sign in</button>
+                        <button data-auth="signup">Sign up</button>
+                    </div>
+                    <form class="auth-form active" id="signinForm">
+                        <div class="field">
+                            <label for="signinEmail">Email</label>
+                            <input type="email" id="signinEmail" required autocomplete="email">
+                        </div>
+                        <div class="field">
+                            <label for="signinPassword">Password</label>
+                            <input type="password" id="signinPassword" required autocomplete="current-password">
+                        </div>
+                        <div class="auth-msg" id="signinMsg"></div>
+                        <button type="submit" class="auth-submit" id="signinBtn">Sign in</button>
+                    </form>
+                    <form class="auth-form" id="signupForm">
+                        <div class="field">
+                            <label for="signupName">Full name</label>
+                            <input type="text" id="signupName" required autocomplete="name">
+                        </div>
+                        <div class="field">
+                            <label for="signupEmail">Email</label>
+                            <input type="email" id="signupEmail" required autocomplete="email">
+                        </div>
+                        <div class="field">
+                            <label for="signupPassword">Password</label>
+                            <input type="password" id="signupPassword" required minlength="8" autocomplete="new-password">
+                        </div>
+                        <div class="auth-msg" id="signupMsg"></div>
+                        <button type="submit" class="auth-submit" id="signupBtn">Create account</button>
+                    </form>
+                </div>
+                <div class="setup-note">
+                    Sign-up and sign-in call your backend API (see <code>API_BASE</code> and the two functions near the top of script.js). On success, this also logs the same person into the Zoho ASAP widget via JWT — see the comment above <code>getJwtTokenCallback</code> in script.js for the two things you need to set up on your end (Zoho SSO + a <code>/desk/jwt-token</code> endpoint).
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="appShell">
+        <div class="wrap">
+            <div class="tabs">
+                <button class="tab active" data-tab="raise">Raise a ticket</button>
+                <button class="tab" data-tab="articles">Articles</button>
+            </div>
+        </div>
+        <main>
+            <div class="wrap">
+                <div class="panelview active" id="tab-raise">
+                    <div class="eyebrow">New request</div>
+                    <h1>Raise a support ticket</h1>
+                    <p class="sub">Fill in the form below. Your request goes straight into the college's Zoho Desk queue and you'll get email updates as it's worked on.</p>
+                    <div class="panel">
+                        <script src="https://desk.zoho.in/portal/api/feedbackwidget/268212000000380027?orgId=60076426050&displayType=embeded"></script>
+                        <div id="zsfeedbackwidgetdiv"></div>
+                    </div>
+                    <div class="setup-note">
+                        This box is Zoho Desk's live <strong>Feedback Widget</strong> — submissions go directly into your Zoho Desk portal as real tickets, no backend needed. Note: this particular widget is separate from ASAP's JWT login, so it won't automatically know who's signed in — it's still a generic name/email form. If you want tickets tied to the logged-in identity too, switch this panel to ASAP's own "Submit Ticket" module instead (which does respect the JWT login below); say the word and I'll swap it in.
+                    </div>
+                </div>
+                <div class="panelview" id="tab-articles">
+                    <div class="eyebrow">Knowledge base</div>
+                    <h1>Help articles</h1>
+                    <p class="sub">Search or browse answers to common questions. Click any article to read it — no need to leave this page.</p>
+                    <div class="panel">
+                        <div class="kb-launch">
+                            <p>Articles open right here on this page, in a panel — no need to leave the site.</p>
+                            <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+                                <button class="kb-btn" id="openArticlesBtn">Open articles →</button>
+                                <button class="kb-btn" id="closeArticlesBtn" style="background:transparent; color:var(--ink);">Close</button>
+                            </div>
+                            <p id="kbStatus" style="margin-top:16px;font-size:12px;">Loading…</p>
+                        </div>
+                    </div>
+                    <div class="setup-note">
+                        This uses Zoho Desk's <strong>ASAP widget</strong> (only the Knowledge Base module enabled) so it opens as an in-page panel over this site, unlike the Help Center link which Zoho blocks from being framed directly.
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="script.js" defer></script>
+</body>
+</html>
