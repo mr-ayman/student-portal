@@ -24,6 +24,10 @@ const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REFRESH_TOKEN = process.env.REFRESH_TOKEN;
 const ORG_ID = process.env.ORG_ID || "60076426050";
 
+let cachedAccessToken = null;
+let cachedAccessTokenTime = 0;
+const ticketCache = {};
+
 function request(method, hostname, path, headers, body) {
     return new Promise((resolve, reject) => {
         const options = {
@@ -60,6 +64,12 @@ function request(method, hostname, path, headers, body) {
 }
 
 async function getAccessToken() {
+    const now = Date.now();
+
+    if (cachedAccessToken && now - cachedAccessTokenTime < 45 * 60 * 1000) {
+        return cachedAccessToken;
+    }
+
     const postData = querystring.stringify({
         refresh_token: REFRESH_TOKEN,
         client_id: CLIENT_ID,
@@ -82,9 +92,11 @@ async function getAccessToken() {
         throw new Error(JSON.stringify(response));
     }
 
-    return response.access_token;
-}
+    cachedAccessToken = response.access_token;
+    cachedAccessTokenTime = now;
 
+    return cachedAccessToken;
+}
 app.get("/", function (req, res) {
     res.json({
         success: true,
@@ -147,5 +159,84 @@ app.get("/article", async function (req, res) {
         });
     }
 });
+app.get("/tickets", async function (req, res) {
+    try {
+        const email = String(req.query.email || "").trim().toLowerCase();
 
+        if (!email) {
+            return res.status(400).json({
+                error: "Email is required"
+            });
+        }
+
+        const now = Date.now();
+
+        if (ticketCache[email] && now - ticketCache[email].time < 60 * 1000) {
+            return res.json(ticketCache[email].data);
+        }
+
+        const accessToken = await getAccessToken();
+
+        const response = await request(
+            "GET",
+            "desk.zoho.in",
+            "/api/v1/tickets?include=contacts&limit=100",
+            {
+                "Authorization": "Zoho-oauthtoken " + accessToken,
+                "orgId": ORG_ID
+            }
+        );
+
+        if (response.error || response.error_description || response.status === "failure") {
+            return res.status(429).json({
+                error: "Zoho Desk API error",
+                details: response
+            });
+        }
+
+        const allTickets = Array.isArray(response.data) ? response.data : [];
+
+        const matchedTickets = allTickets.filter(ticket => {
+            const ticketEmail = String(
+                ticket.email ||
+                ticket.contactEmail ||
+                ticket.contact?.email ||
+                ""
+            ).trim().toLowerCase();
+
+            return ticketEmail === email;
+        });
+
+        const tickets = matchedTickets.map(ticket => {
+            return {
+                id: ticket.id,
+                ticketNumber: ticket.ticketNumber || ticket.id,
+                subject: ticket.subject || "No subject",
+                status: ticket.status || "Unknown",
+                priority: ticket.priority || "None",
+                channel: ticket.channel || "",
+                createdTime: ticket.createdTime || "",
+                modifiedTime: ticket.modifiedTime || ""
+            };
+        });
+
+        const result = {
+            data: tickets,
+            matched: tickets.length
+        };
+
+        ticketCache[email] = {
+            time: now,
+            data: result
+        };
+
+        res.json(result);
+
+    } catch (error) {
+        res.status(500).json({
+            error: "Unable to fetch tickets",
+            details: error.message
+        });
+    }
+});
 module.exports = app;
