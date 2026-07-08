@@ -13,7 +13,7 @@ function loadArticle() {
         return;
     }
 
-    fetch("api/getArticle.php?id=" + encodeURIComponent(articleId))
+    fetch("https://project-rainfall-60076674739.development.catalystserverless.in/server/helpcenter_api/article?id=" + encodeURIComponent(articleId))
         .then(response => response.json())
         .then(article => {
             if (article.error) {

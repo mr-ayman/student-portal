@@ -27,7 +27,7 @@ function loadArticles() {
 
     status.innerHTML = "Loading articles...";
 
-    fetch("api/getArticles.php")
+    fetch("https://project-rainfall-60076674739.development.catalystserverless.in/server/helpcenter_api/articles")
         .then(response => response.json())
         .then(result => {
             if (result.error) {
@@ -42,7 +42,9 @@ function loadArticles() {
 
             let html = "";
 
-            result.data.forEach(article => {
+            result.data
+    .filter(article => article.permission === "ALL")
+    .forEach(article => {
                 html += `
                     <div class="article-card">
                         <h3>${article.title}</h3>
