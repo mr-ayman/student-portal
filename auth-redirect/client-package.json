@@ -1,0 +1,6 @@
+{
+  "name": "student-portal-auth-redirect",
+  "version": "1.0.0",
+  "homepage": "index.html",
+  "login_redirect": "index.html"
+}

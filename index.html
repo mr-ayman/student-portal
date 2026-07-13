@@ -5,31 +5,86 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Support Portal</title>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
-    <header>
-        <div class="wrap">
-            <div class="masthead">
+<header>
+    <div class="wrap">
+        <div class="masthead portal-navbar">
+            <div>
                 <span class="office-label">Office of Student Support</span>
                 <div class="logo"><span class="dot"></span>Student Support Portal</div>
             </div>
-        </div>
-    </header>
 
+            <div id="authNav" class="auth-nav">
+                Checking login...
+            </div>
+        </div>
+    </div>
+</header>
+
+<div id="guestHero" class="guest-hero" style="display:none;">
     <div class="wrap">
-        <p class="intro">Raise a ticket for anything you need help with, or search the knowledge base for answers already written down. Every ticket reaches a real member of staff; every article can be commented on if something's unclear.</p>
+        <div class="hero-card">
+            <div class="eyebrow">Student help desk</div>
+            <h1>Get help with college support requests in one place.</h1>
+            <p>
+                Sign in to raise a ticket, track your requests, and read help articles prepared by the support team.
+            </p>
+
+            <div class="hero-actions">
+    <button type="button" class="submit-ticket-btn" id="guestLoginBtn">
+        Sign in
+    </button>
+
+    <button type="button" class="feedback-btn" id="guestSignupBtn">
+        Sign up
+    </button>
+</div>
+
+            <div class="hero-grid">
+                <div class="hero-mini-card">
+                    <strong>Raise tickets</strong>
+                    <span>Send your issue directly to the support team.</span>
+                </div>
+
+                <div class="hero-mini-card">
+                    <strong>Track status</strong>
+                    <span>View only the tickets connected to your account.</span>
+                </div>
+
+                <div class="hero-mini-card">
+                    <strong>Read articles</strong>
+                    <span>Find answers before contacting staff.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="appArea" style="display:none;">
+    <div class="wrap">
+        <p class="intro">
+            Raise a ticket for anything you need help with, or search the knowledge base for answers already written down.
+            Every ticket reaches a real member of staff; every article can be commented on if something's unclear.
+        </p>
+
+        <div id="authBox" class="auth-box">
+            Checking login status...
+        </div>
 
         <div class="tabs">
-    <button class="tab active" data-tab="raise">Raise a ticket</button>
-    <button class="tab" data-tab="tickets">My Tickets</button>
-    <button class="tab" data-tab="articles">Articles</button>
-</div>
+            <button class="tab active" data-tab="raise">Raise a ticket</button>
+            <button class="tab" data-tab="tickets">My Tickets</button>
+            <button class="tab" data-tab="articles">Articles</button>
+        </div>
     </div>
 
     <main>
@@ -38,61 +93,99 @@
             <div class="panelview active" id="tab-raise">
                 <div class="eyebrow">New request</div>
                 <h1>Raise a support ticket</h1>
-                <p class="sub">Fill in the form below. Your request goes straight into the college's Zoho Desk queue and you'll get email updates as it's worked on.</p>
+                <p class="sub">
+                    Fill in the form below. Your request goes straight into the college's Zoho Desk queue and you'll get email updates as it's worked on.
+                </p>
 
                 <div class="panel">
-                    <script src="https://desk.zoho.in/portal/api/feedbackwidget/268212000000380027?orgId=60076426050&displayType=embeded"></script>
-                    <div id="zsfeedbackwidgetdiv"></div>
+                    <form id="customTicketForm" class="custom-ticket-form">
+
+                        <div class="form-field">
+                            <label for="ticketSubject">Subject</label>
+                            <input type="text" id="ticketSubject" placeholder="Example: Attendance issue" required>
+                        </div>
+
+                        <div class="form-field">
+                            <label for="ticketCategory">Category</label>
+                            <select id="ticketCategory">
+                                <option value="General">General</option>
+                                <option value="Attendance">Attendance</option>
+                                <option value="Fees">Fees</option>
+                                <option value="Exam">Exam</option>
+                                <option value="Technical">Technical</option>
+                            </select>
+                        </div>
+
+                        <div class="form-field">
+                            <label for="ticketDescription">How can we help?</label>
+                            <textarea id="ticketDescription" placeholder="Explain your problem clearly..." required></textarea>
+                        </div>
+
+                        <button type="submit" class="submit-ticket-btn">
+                            Submit Ticket
+                        </button>
+
+                        <p id="customTicketMessage"></p>
+                    </form>
                 </div>
             </div>
+
             <div class="panelview" id="tab-tickets">
-    <div class="eyebrow">Ticket status</div>
-    <h1>My tickets</h1>
-    <p class="sub">Enter the email address you used while raising your ticket. We will show your ticket status here.</p>
+                <div class="eyebrow">Ticket status</div>
+                <h1>My tickets</h1>
+                <p class="sub">Your tickets are loaded using your signed-in account email.</p>
 
-    <div class="panel">
-        <form id="ticketSearchForm" class="ticket-search-form">
-            <input type="email" id="ticketEmail" placeholder="Enter your email address" required>
-            <button type="submit" class="feedback-btn">Check tickets</button>
-        </form>
+                <div class="panel">
+                    <button type="button" class="feedback-btn" onclick="loadMyTickets()">
+                        Refresh tickets
+                    </button>
 
-        <div id="ticketStatus" style="margin-top:24px;">
-            Enter your email address to view your tickets.
-        </div>
-    </div>
-</div>
+                    <div id="ticketStatus" style="margin-top:24px;">
+                        Loading your tickets...
+                    </div>
+                </div>
+            </div>
+
             <div class="panelview" id="tab-articles">
                 <div class="eyebrow">Knowledge base</div>
                 <h1>Help articles</h1>
-                <p class="sub">Browse answers to common questions. Open any article and leave a comment underneath if you need more detail — a staff member can reply directly on the article.</p>
+                <p class="sub">
+                    Browse answers to common questions. Open any article and leave a comment underneath if you need more detail.
+                </p>
 
                 <div class="panel">
-                    <p id="kbStatus" style="text-align:center; padding:40px 0; color:var(--ink-soft);">Loading articles…</p>
+                    <p id="kbStatus" style="text-align:center; padding:40px 0; color:var(--ink-soft);">
+                        Loading articles…
+                    </p>
                 </div>
             </div>
 
         </div>
     </main>
+</div>
 
-    <footer>
-        <div class="wrap">
-            <div class="foot-row">
-                <div>
-                    <div class="foot-label">Support hours</div>
-                    <div class="foot-value">Mon–Fri, 9:00 AM – 6:00 PM</div>
-                </div>
-                <div>
-                    <div class="foot-label">Response time</div>
-                    <div class="foot-value">Within 1 working day</div>
-                </div>
-                <div class="foot-credit">Powered by Zoho Desk</div>
+<footer>
+    <div class="wrap">
+        <div class="foot-row">
+            <div>
+                <div class="foot-label">Support hours</div>
+                <div class="foot-value">Mon–Fri, 9:00 AM – 6:00 PM</div>
             </div>
+            <div>
+                <div class="foot-label">Response time</div>
+                <div class="foot-value">Within 1 working day</div>
+            </div>
+            <div class="foot-credit">Powered by Zoho Desk</div>
         </div>
-    </footer>
+    </div>
+</footer>
 
 <button id="ziaAgentBtn" class="zia-agent-btn" type="button">
     ✨ Ask Zia
 </button>
+
+<script src="https://static.zohocdn.com/catalyst/sdk/js/4.0.0/catalystWebSDK.js"></script>
+<script src="/__catalyst/sdk/init.js"></script>
 
 <script src="zia.js" defer></script>
 <script src="script.js" defer></script>
