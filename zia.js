@@ -1,3 +1,4 @@
+// zia.js
 const ZIA_API_BASE = "https://project-rainfall-60076674739.development.catalystserverless.in/server/helpcenter_api";
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -26,7 +27,7 @@ function createZiaChatBox() {
         <div class="custom-zia-header">
             <div>
                 <strong>Ask Zia</strong>
-                <span>Article help assistant</span>
+                <span>Community topics assistant</span>
             </div>
 
             <button type="button" class="custom-zia-close" id="closeZiaBtn">
@@ -36,7 +37,7 @@ function createZiaChatBox() {
 
         <div id="customZiaMessages" class="custom-zia-messages">
             <div class="zia-message zia-bot">
-                Hi! Ask me about attendance, fees, exams, technical issues, or any support question.
+                Hi! Ask me about the latest community topics, Zoho Desk, Catalyst, APIs, authentication, OAuth, or deployment issues.
             </div>
         </div>
 
@@ -77,7 +78,7 @@ function sendZiaQuestion() {
     addZiaMessage(question, "user");
     input.value = "";
 
-    addZiaMessage("Searching help articles...", "bot", "ziaLoadingMessage");
+    addZiaMessage("Searching latest community topics...", "bot", "ziaLoadingMessage");
 
     fetch(ZIA_API_BASE + "/zia-chat", {
         method: "POST",
@@ -89,31 +90,95 @@ function sendZiaQuestion() {
             question: question
         })
     })
-        .then(response => response.json())
+        .then(async response => {
+            const text = await response.text();
+
+            let result;
+
+            try {
+                result = JSON.parse(text);
+            } catch (error) {
+                throw new Error(
+                    "Backend did not return JSON. Status: " +
+                    response.status +
+                    ". Response starts with: " +
+                    text.substring(0, 120)
+                );
+            }
+
+            if (!response.ok) {
+                throw new Error(
+                    result.details
+                        ? result.error + ": " + result.details
+                        : result.error || "Backend request failed"
+                );
+            }
+
+            return result;
+        })
         .then(result => {
             removeZiaLoading();
 
             if (result.error) {
-                addZiaMessage(result.error, "bot");
+                addZiaMessage(
+                    result.details
+                        ? result.error + ": " + result.details
+                        : result.error,
+                    "bot"
+                );
                 return;
             }
 
             if (!result.matches || result.matches.length === 0) {
-                addZiaMessage("I could not find a matching article. Please raise a ticket for help.", "bot");
+                addZiaMessage("I could not find a matching community topic. Please raise a ticket for help.", "bot");
                 return;
             }
 
             let html = `<strong>${escapeZiaHTML(result.answer)}</strong>`;
-
             html += `<div class="zia-result-list">`;
 
-            result.matches.forEach(article => {
-                html += `
-                    <a class="zia-result-link" href="article.html?id=${encodeURIComponent(article.id)}">
-                        ${escapeZiaHTML(article.title)}
-                    </a>
-                    <p>${escapeZiaHTML(article.summary || "Open this article for more details.")}</p>
-                `;
+            result.matches.forEach(topic => {
+                const topicId = topic.id || "";
+                const topicTitle = topic.title || "Untitled community topic";
+                const topicSummary = topic.summary || "Open this community topic for more details.";
+
+                if (topicId) {
+                    const topicData = {
+                        id: topicId,
+                        title: topicTitle,
+                        summary: topicSummary,
+                        type: topic.type || "",
+                        label: topic.label || "",
+                        status: topic.status || "",
+                        likeCount: topic.likeCount || 0,
+                        commentCount: topic.commentCount || 0,
+                        createdTime: topic.createdTime || "",
+                        webUrl: topic.webUrl || topic.openUrl || topic.url || topic.link || topic.permalink || topic.href || ""
+                    };
+
+                    sessionStorage.setItem(
+                        "communityTopic_" + topicId,
+                        JSON.stringify(topicData)
+                    );
+
+                    html += `
+                        <a class="zia-result-link" href="community-topic.html?id=${encodeURIComponent(topicId)}">
+                            ${escapeZiaHTML(topicTitle)}
+                        </a>
+
+                        <p>${escapeZiaHTML(topicSummary)}</p>
+                    `;
+                } else {
+                    html += `
+                        <strong class="zia-result-link">${escapeZiaHTML(topicTitle)}</strong>
+
+                        <p>${escapeZiaHTML(topicSummary)}</p>
+
+                        <small style="display:block; margin-top:6px; color:#666;">
+                            No topic ID available.
+                        </small>
+                    `;
+                }
             });
 
             html += `</div>`;
@@ -123,7 +188,7 @@ function sendZiaQuestion() {
         .catch(error => {
             console.error(error);
             removeZiaLoading();
-            addZiaMessage("Unable to contact Zia right now. Please try again.", "bot");
+            addZiaMessage(error.message || "Unable to contact Zia right now. Please try again.", "bot");
         });
 }
 

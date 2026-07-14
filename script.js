@@ -1,3 +1,4 @@
+// Script.js:
 const API_BASE = "https://project-rainfall-60076674739.development.catalystserverless.in/server/helpcenter_api";
 
 const LOGIN_URL = "https://project-rainfall-60076674739.development.catalystserverless.in/__catalyst/auth/login";
