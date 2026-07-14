@@ -1,9 +1,11 @@
+// index.js
 'use strict';
 
 const express = require('express');
 const https = require('https');
 const querystring = require('querystring');
 const catalyst = require("zcatalyst-sdk-node");
+
 
 const app = express();
 
@@ -471,7 +473,76 @@ app.post("/create-ticket", async function (req, res) {
     }
 });
 
-app.post("/zia-chat", async function (req, res) {
+function formatPublicCommunityTopic(topic) {
+    const permalink = String(topic.permalink || "").trim();
+
+    const webUrl = permalink
+        ? "https://help.zoho.com/portal/en/community/topic/" + permalink
+        : "";
+
+    return {
+        id: topic.id || permalink,
+        title: topic.subject || "Untitled community topic",
+        summary: topic.content || "No summary available.",
+        type: topic.type || "COMMUNITY",
+        label: topic.label || "",
+        status: topic.status || "",
+        likeCount: topic.likeCount || 0,
+        commentCount: topic.commentCount || 0,
+        viewCount: topic.viewCount || 0,
+        createdTime: topic.createdTime || "",
+        latestCommentTime: topic.latestCommentTime || "",
+        webUrl: webUrl,
+        openUrl: webUrl
+    };
+}
+
+async function fetchHelpZohoCommunityTopics() {
+    const portalId = "edbsn3857479fd7bb83e29368ff05a1860319f4481b7f04184d0e9b6e93712995a590";
+
+    async function fetchPage(from) {
+        const apiPath =
+            "/portal/api/communityTopics" +
+            "?portalId=" + encodeURIComponent(portalId) +
+            "&from=" + from +
+            "&limit=50" +
+            "&type=ANNOUNCEMENT" +
+            "&sortBy=createdTime" +
+            "&isDescending=true";
+
+        const result = await request(
+            "GET",
+            "help.zoho.com",
+            apiPath,
+            {
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 StudentSupportPortal/1.0",
+                "Referer": "https://help.zoho.com/portal/en/community"
+            }
+        );
+
+        if (result.statusCode < 200 || result.statusCode >= 300) {
+            throw new Error(
+                "help.zoho.com communityTopics endpoint failed. Status: " +
+                result.statusCode +
+                ". Response: " +
+                JSON.stringify(result.data)
+            );
+        }
+
+        const response = result.data || {};
+        return Array.isArray(response.data) ? response.data : [];
+    }
+
+    const page1 = await fetchPage(1);
+    const page2 = await fetchPage(51);
+
+    const allTopics = page1.concat(page2).slice(0, 100);
+
+    return allTopics.map(formatPublicCommunityTopic);
+}
+
+async function handleZiaChat(req, res) {
     try {
         await getLoggedInUser(req);
 
@@ -493,77 +564,192 @@ app.post("/zia-chat", async function (req, res) {
             });
         }
 
-        const accessToken = await getAccessToken();
+        const topics = await fetchHelpZohoCommunityTopics();
 
-        const result = await request(
-            "GET",
-            "desk.zoho.in",
-            "/api/v1/articles",
-            {
-                "Authorization": "Zoho-oauthtoken " + accessToken,
-                "orgId": ORG_ID
-            }
-        );
+        if (!topics || topics.length === 0) {
+            return res.json({
+                answer: "I could not fetch public Zoho Community topics right now.",
+                matches: []
+            });
+        }
 
-        const response = result.data || result;
-        const articles = Array.isArray(response.data) ? response.data : [];
+        const lowerQuestion = question.toLowerCase();
+
+        const wantsLatest =
+            lowerQuestion.includes("latest") ||
+            lowerQuestion.includes("recent") ||
+            lowerQuestion.includes("currently") ||
+            lowerQuestion.includes("discussed") ||
+            lowerQuestion.includes("discussing") ||
+            lowerQuestion.includes("100") ||
+            lowerQuestion.includes("topics") ||
+            lowerQuestion.includes("community");
+
+        if (wantsLatest) {
+            return res.json({
+                answer:
+                    "I fetched the latest 100 public Zoho Community topics using the help.zoho.com communityTopics API. These are the most recent announcements and discussions available from the community feed.",
+                matches: topics.slice(0, 100)
+            });
+        }
+
+        const stopWords = [
+            "what", "why", "how", "can", "could", "would", "should",
+            "the", "and", "for", "with", "from", "about", "tell",
+            "explain", "please", "need", "want", "using", "does",
+            "this", "that", "are", "you", "zia"
+        ];
 
         const words = question
             .toLowerCase()
             .replace(/[^a-z0-9\s]/g, " ")
             .split(/\s+/)
-            .filter(word => word.length > 2);
+            .filter(word => word.length > 2 && !stopWords.includes(word));
 
-        const scoredArticles = articles.map(article => {
-            const title = String(article.title || "").toLowerCase();
-            const summary = String(article.summary || "").toLowerCase();
-            const combinedText = title + " " + summary;
+        const scoredTopics = topics.map(topic => {
+            const title = String(topic.title || "").toLowerCase();
+            const summary = String(topic.summary || "").toLowerCase();
+            const type = String(topic.type || "").toLowerCase();
+            const label = String(topic.label || "").toLowerCase();
 
             let score = 0;
 
             words.forEach(word => {
-                if (title.includes(word)) {
-                    score += 3;
-                }
-
-                if (summary.includes(word)) {
-                    score += 2;
-                }
-
-                if (combinedText.includes(word)) {
-                    score += 1;
-                }
+                if (title.includes(word)) score += 5;
+                if (summary.includes(word)) score += 3;
+                if (type.includes(word)) score += 2;
+                if (label.includes(word)) score += 2;
             });
 
             return {
-                id: article.id,
-                title: article.title || "Untitled article",
-                summary: article.summary || "",
+                ...topic,
                 score: score
             };
         });
 
-        const matches = scoredArticles
-            .filter(article => article.score > 0)
+        const matches = scoredTopics
+            .filter(topic => topic.score > 0)
             .sort((a, b) => b.score - a.score)
-            .slice(0, 3);
+            .slice(0, 5);
 
         if (matches.length === 0) {
             return res.json({
-                answer: "I could not find a matching article.",
-                matches: []
+                answer:
+                    "I checked the latest 100 public Zoho Community topics, but I could not find a strong match for your question. Here are the latest topics that may still help you.",
+                matches: topics.slice(0, 10)
             });
         }
 
+        const mainTopic = matches[0];
+
+        let aiAnswer =
+            "Based on the latest public Zoho Community topics, the most relevant topic I found is \"" +
+            mainTopic.title +
+            "\". ";
+
+        if (mainTopic.summary) {
+            aiAnswer +=
+                "It explains that " +
+                makeShortAnswer(mainTopic.summary) +
+                " ";
+        }
+
+        if (matches.length > 1) {
+            aiAnswer +=
+                "I also found " +
+                (matches.length - 1) +
+                " related community topic(s) that may give more context. ";
+        }
+
+        aiAnswer +=
+ (matches.length - 1) +
+                " related community topic(s) that may give more context. ";
+            "You can open the matched topic links below to read the full discussion.";
+
         res.json({
-            answer: "I found these help articles that may answer your question:",
+            answer: aiAnswer,
             matches: matches
         });
 
     } catch (error) {
-        res.status(401).json({
-            error: "Please sign in to use Zia assistant",
+        res.status(500).json({
+            error: "Unable to fetch public Zoho Community topics",
             details: error.message
+        });
+    }
+}
+
+function makeShortAnswer(text) {
+    const cleanText = String(text || "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    if (!cleanText) {
+        return "this community topic contains useful information related to your question.";
+    }
+
+    const sentences = cleanText
+        .split(".")
+        .map(sentence => sentence.trim())
+        .filter(sentence => sentence.length > 20);
+
+    if (sentences.length === 0) {
+        return cleanText.slice(0, 250) + "...";
+    }
+
+    return sentences.slice(0, 2).join(". ") + ".";
+}
+
+app.post("/zia-chat", handleZiaChat);
+app.post("/zia", handleZiaChat);
+
+app.get("/community-topic", async function (req, res) {
+    try {
+        await getLoggedInUser(req);
+
+        const topicId = req.query.id;
+
+        if (!topicId) {
+            return res.status(400).json({
+                error: "Community topic ID is required"
+            });
+        }
+
+        const topics = await fetchHelpZohoCommunityTopics();
+
+        const topic = topics.find(item => String(item.id) === String(topicId));
+
+        if (!topic) {
+            return res.status(404).json({
+                error: "Community topic not found in latest help.zoho.com topics"
+            });
+        }
+
+        res.json(topic);
+
+    } catch (error) {
+        res.status(500).json({
+            error: "Please sign in to view this community topic",
+            details: error.message
+        });
+    }
+});
+
+app.get("/test-help-community", async function (req, res) {
+    try {
+        const topics = await fetchHelpZohoCommunityTopics();
+
+        res.json({
+            success: true,
+            count: topics.length,
+            data: topics
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
         });
     }
 });
