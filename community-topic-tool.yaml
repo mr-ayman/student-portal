@@ -1,0 +1,59 @@
+openapi: 3.0.0
+info:
+  title: Zoho Community Topics Tool
+  version: 1.0.0
+  description: Fetches relevant public Zoho Community topics from help.zoho.com through Catalyst.
+
+servers:
+  - url: https://project-rainfall-60076674739.development.catalystserverless.in/server/helpcenter_api
+
+paths:
+  /zia-topic-sources:
+    get:
+      summary: Fetch relevant Zoho Community topics
+      description: Fetches community topics related to the user's question.
+      operationId: fetchCommunityTopicSources
+      parameters:
+        - name: question
+          in: query
+          required: true
+          description: User question to search relevant community topics.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Community topics fetched successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  question:
+                    type: string
+                  totalFetched:
+                    type: integer
+                  count:
+                    type: integer
+                  topics:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          type: string
+                        summary:
+                          type: string
+                        type:
+                          type: string
+                        commentCount:
+                          type: string
+                        viewCount:
+                          type: string
+                        createdTime:
+                          type: string
+                        webUrl:
+                          type: string

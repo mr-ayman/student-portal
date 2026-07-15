@@ -45,6 +45,15 @@ const REFRESH_TOKEN = process.env.REFRESH_TOKEN;
 const ORG_ID = process.env.ORG_ID || "60076426050";
 const DEPARTMENT_ID = process.env.DEPARTMENT_ID || "268212000000010772";
 
+const ZIA_CLIENT_ID = process.env.ZIA_CLIENT_ID;
+const ZIA_CLIENT_SECRET = process.env.ZIA_CLIENT_SECRET;
+const ZIA_REFRESH_TOKEN = process.env.ZIA_REFRESH_TOKEN;
+const ZIA_AGENT_ORG = process.env.ZIA_AGENT_ORG || "60078188853";
+const ZIA_AGENT_ID = process.env.ZIA_AGENT_ID || "8696000000002061";
+const ZIA_AGENT_VERSION_ID = process.env.ZIA_AGENT_VERSION_ID || "8696000000002275";
+
+let cachedZiaAccessToken = null;
+let cachedZiaAccessTokenTime = 0;
 let cachedAccessToken = null;
 let cachedAccessTokenTime = 0;
 const ticketCache = {};
@@ -506,7 +515,6 @@ async function fetchHelpZohoCommunityTopics() {
             "?portalId=" + encodeURIComponent(portalId) +
             "&from=" + from +
             "&limit=50" +
-            "&type=ANNOUNCEMENT" +
             "&sortBy=createdTime" +
             "&isDescending=true";
 
@@ -542,6 +550,263 @@ async function fetchHelpZohoCommunityTopics() {
     return allTopics.map(formatPublicCommunityTopic);
 }
 
+
+async function getZiaAgentAccessToken() {
+    const now = Date.now();
+
+    if (cachedZiaAccessToken && now - cachedZiaAccessTokenTime < 45 * 60 * 1000) {
+        return cachedZiaAccessToken;
+    }
+
+    if (!ZIA_CLIENT_ID || !ZIA_CLIENT_SECRET || !ZIA_REFRESH_TOKEN) {
+        throw new Error("Missing ZIA_CLIENT_ID, ZIA_CLIENT_SECRET, or ZIA_REFRESH_TOKEN environment variable");
+    }
+
+    const postData = querystring.stringify({
+        refresh_token: ZIA_REFRESH_TOKEN,
+        client_id: ZIA_CLIENT_ID,
+        client_secret: ZIA_CLIENT_SECRET,
+        grant_type: "refresh_token"
+    });
+
+    const tokenResult = await request(
+        "POST",
+        "accounts.zoho.in",
+        "/oauth/v2/token",
+        {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Content-Length": Buffer.byteLength(postData)
+        },
+        postData
+    );
+
+    const response = tokenResult.data;
+
+    if (!response.access_token) {
+        throw new Error("Unable to get Zia Agent access token: " + JSON.stringify(response));
+    }
+
+    cachedZiaAccessToken = response.access_token;
+    cachedZiaAccessTokenTime = now;
+
+    return cachedZiaAccessToken;
+}
+
+async function triggerZiaAgent(question) {
+    const accessToken = await getZiaAgentAccessToken();
+
+    const body = JSON.stringify({
+        query: question,
+        reasoning: false,
+        attachments: [],
+        systemArgs: {}
+    });
+
+    const result = await request(
+        "POST",
+        "ziaagents.zoho.in",
+        "/ziaagents/api/v1/agents/query",
+        {
+            "Authorization": "Zoho-oauthtoken " + accessToken,
+            "X-ZIAAGENTS-ORG": ZIA_AGENT_ORG,
+            "X-ZIAAGENTS-AGENT-ID": ZIA_AGENT_ID,
+            "X-ZIAAGENTS-AGENT-VERSION-ID": ZIA_AGENT_VERSION_ID,
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body)
+        },
+        body
+    );
+
+    if (result.statusCode < 200 || result.statusCode >= 300) {
+        throw new Error(
+            "Zia Agent API failed. Status: " +
+            result.statusCode +
+            ". Response: " +
+            JSON.stringify(result.data)
+        );
+    }
+
+    return extractZiaAgentAnswer(result.data);
+}
+
+function extractZiaAgentAnswer(response) {
+    if (!response) return "";
+
+    if (typeof response === "string") {
+        return response;
+    }
+
+    const possibleAnswers = [
+        response.answer,
+        response.response,
+        response.message,
+        response.content,
+
+        response.data?.answer,
+        response.data?.response,
+        response.data?.message,
+        response.data?.content,
+        response.data?.output,
+
+        response.output?.answer,
+        response.output?.text,
+        response.output,
+
+        response.result?.answer,
+        response.result?.response,
+        response.result?.message
+    ];
+
+    for (const value of possibleAnswers) {
+        if (typeof value === "string" && value.trim()) {
+            return value.trim();
+        }
+    }
+
+    return JSON.stringify(response);
+}
+
+
+function isSummaryQuestion(question) {
+    const text = String(question || "").toLowerCase();
+
+    return (
+        text.includes("summarize") ||
+        text.includes("summary") ||
+        text.includes("overview") ||
+        text.includes("brief") ||
+        text.includes("currently discussed") ||
+        text.includes("main things discussed") ||
+        text.includes("what are they discussing")
+    );
+}
+
+function shouldShowTopicLinks(question) {
+    const text = String(question || "").toLowerCase();
+
+    if (isSummaryQuestion(question)) {
+        return false;
+    }
+
+    return (
+        text.includes("list") ||
+        text.includes("show related") ||
+        text.includes("show topics") ||
+        text.includes("show community topics") ||
+        text.includes("source") ||
+        text.includes("sources") ||
+        text.includes("reference") ||
+        text.includes("references") ||
+        text.includes("links") ||
+        text.includes("related topics")
+    );
+}
+
+function isSummaryQuestion(question) {
+    const text = String(question || "").toLowerCase();
+
+    return (
+        text.includes("summarize") ||
+        text.includes("summary") ||
+        text.includes("overview") ||
+        text.includes("brief") ||
+        text.includes("currently discussed") ||
+        text.includes("main things discussed") ||
+        text.includes("what are they discussing")
+    );
+}
+
+function isPopularQuestion(question) {
+    const text = String(question || "").toLowerCase();
+
+    return (
+        text.includes("popular") ||
+        text.includes("trending") ||
+        text.includes("top") ||
+        text.includes("most viewed") ||
+        text.includes("most discussed") ||
+        text.includes("active topics") ||
+        text.includes("highly discussed")
+    );
+}
+
+function shouldShowTopicLinks(question) {
+    const text = String(question || "").toLowerCase();
+
+    if (isSummaryQuestion(question)) {
+        return false;
+    }
+
+    if (isPopularQuestion(question)) {
+        return true;
+    }
+
+    return (
+        text.includes("list") ||
+        text.includes("show related") ||
+        text.includes("show topics") ||
+        text.includes("show community topics") ||
+        text.includes("source") ||
+        text.includes("sources") ||
+        text.includes("reference") ||
+        text.includes("references") ||
+        text.includes("links") ||
+        text.includes("related topics")
+    );
+}
+
+function getTopicPopularityScore(topic) {
+    const comments = Number(topic.commentCount || 0);
+    const views = Number(topic.viewCount || 0);
+    const likes = Number(topic.likeCount || 0);
+
+    return comments * 5 + likes * 3 + views;
+}
+
+function findPopularCommunityTopics(question, topics, limit) {
+    const words = getImportantQuestionWords(question);
+
+    const productWords = words.filter(word => {
+        return ![
+            "popular",
+            "trending",
+            "most",
+            "viewed",
+            "discussed",
+            "active",
+            "highly",
+            "top"
+        ].includes(word);
+    });
+
+    let filteredTopics = topics;
+
+    if (productWords.length > 0) {
+        const productMatches = topics.filter(topic => {
+            const text = (
+                cleanTopicText(topic.title) +
+                " " +
+                cleanTopicText(topic.summary) +
+                " " +
+                cleanTopicText(topic.type) +
+                " " +
+                cleanTopicText(topic.label)
+            ).toLowerCase();
+
+            return productWords.some(word => text.includes(word));
+        });
+
+        if (productMatches.length > 0) {
+            filteredTopics = productMatches;
+        }
+    }
+
+    return filteredTopics
+        .slice()
+        .sort((a, b) => getTopicPopularityScore(b) - getTopicPopularityScore(a))
+        .slice(0, limit);
+}
+
 async function handleZiaChat(req, res) {
     try {
         await getLoggedInUser(req);
@@ -564,141 +829,131 @@ async function handleZiaChat(req, res) {
             });
         }
 
+        const ziaAnswer = await triggerZiaAgent(question);
+
+        let sourceMatches = [];
+
+if (shouldShowTopicLinks(question)) {
+    try {
         const topics = await fetchHelpZohoCommunityTopics();
+        sourceMatches = findBestCommunityTopicMatches(question, topics, 5);
 
-        if (!topics || topics.length === 0) {
-            return res.json({
-                answer: "I could not fetch public Zoho Community topics right now.",
-                matches: []
-            });
+        if (!sourceMatches || sourceMatches.length === 0) {
+            sourceMatches = topics.slice(0, 5);
         }
-
-        const lowerQuestion = question.toLowerCase();
-
-        const wantsLatest =
-            lowerQuestion.includes("latest") ||
-            lowerQuestion.includes("recent") ||
-            lowerQuestion.includes("currently") ||
-            lowerQuestion.includes("discussed") ||
-            lowerQuestion.includes("discussing") ||
-            lowerQuestion.includes("100") ||
-            lowerQuestion.includes("topics") ||
-            lowerQuestion.includes("community");
-
-        if (wantsLatest) {
-            return res.json({
-                answer:
-                    "I fetched the latest 100 public Zoho Community topics using the help.zoho.com communityTopics API. These are the most recent announcements and discussions available from the community feed.",
-                matches: topics.slice(0, 100)
-            });
-        }
-
-        const stopWords = [
-            "what", "why", "how", "can", "could", "would", "should",
-            "the", "and", "for", "with", "from", "about", "tell",
-            "explain", "please", "need", "want", "using", "does",
-            "this", "that", "are", "you", "zia"
-        ];
-
-        const words = question
-            .toLowerCase()
-            .replace(/[^a-z0-9\s]/g, " ")
-            .split(/\s+/)
-            .filter(word => word.length > 2 && !stopWords.includes(word));
-
-        const scoredTopics = topics.map(topic => {
-            const title = String(topic.title || "").toLowerCase();
-            const summary = String(topic.summary || "").toLowerCase();
-            const type = String(topic.type || "").toLowerCase();
-            const label = String(topic.label || "").toLowerCase();
-
-            let score = 0;
-
-            words.forEach(word => {
-                if (title.includes(word)) score += 5;
-                if (summary.includes(word)) score += 3;
-                if (type.includes(word)) score += 2;
-                if (label.includes(word)) score += 2;
-            });
-
-            return {
-                ...topic,
-                score: score
-            };
-        });
-
-        const matches = scoredTopics
-            .filter(topic => topic.score > 0)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, 5);
-
-        if (matches.length === 0) {
-            return res.json({
-                answer:
-                    "I checked the latest 100 public Zoho Community topics, but I could not find a strong match for your question. Here are the latest topics that may still help you.",
-                matches: topics.slice(0, 10)
-            });
-        }
-
-        const mainTopic = matches[0];
-
-        let aiAnswer =
-            "Based on the latest public Zoho Community topics, the most relevant topic I found is \"" +
-            mainTopic.title +
-            "\". ";
-
-        if (mainTopic.summary) {
-            aiAnswer +=
-                "It explains that " +
-                makeShortAnswer(mainTopic.summary) +
-                " ";
-        }
-
-        if (matches.length > 1) {
-            aiAnswer +=
-                "I also found " +
-                (matches.length - 1) +
-                " related community topic(s) that may give more context. ";
-        }
-
-        aiAnswer +=
- (matches.length - 1) +
-                " related community topic(s) that may give more context. ";
-            "You can open the matched topic links below to read the full discussion.";
-
+    } catch (sourceError) {
+        sourceMatches = [];
+    }
+}
         res.json({
-            answer: aiAnswer,
-            matches: matches
+            answer: ziaAnswer || "Zia Agent returned an empty answer.",
+            matches: sourceMatches,
+            poweredBy: "Zia Agent"
         });
 
     } catch (error) {
         res.status(500).json({
-            error: "Unable to fetch public Zoho Community topics",
+            error: "Unable to contact Zia Agent",
             details: error.message
         });
     }
 }
 
-function makeShortAnswer(text) {
-    const cleanText = String(text || "")
+function findBestCommunityTopicMatches(question, topics, limit) {
+    const words = getImportantQuestionWords(question);
+    const fullQuestion = String(question || "").toLowerCase();
+
+    const wantsZiaAi =
+        fullQuestion.includes("zia") ||
+        fullQuestion.includes("ai") ||
+        fullQuestion.includes("agent") ||
+        fullQuestion.includes("agents");
+
+    const scoredTopics = topics.map(topic => {
+        const title = cleanTopicText(topic.title).toLowerCase();
+        const summary = cleanTopicText(topic.summary).toLowerCase();
+        const type = cleanTopicText(topic.type).toLowerCase();
+        const label = cleanTopicText(topic.label).toLowerCase();
+
+        const combinedText = title + " " + summary + " " + type + " " + label;
+
+        let score = 0;
+
+        if (title.includes(fullQuestion)) score += 30;
+        if (summary.includes(fullQuestion)) score += 20;
+
+        if (wantsZiaAi) {
+            if (title.includes("zia")) score += 25;
+            if (summary.includes("zia")) score += 18;
+
+            if (title.includes("ai")) score += 20;
+            if (summary.includes("ai")) score += 14;
+
+            if (title.includes("agent")) score += 12;
+            if (summary.includes("agent")) score += 8;
+
+            if (title.includes("desk")) score += 6;
+            if (summary.includes("desk")) score += 4;
+        }
+
+        words.forEach(word => {
+            if (title.includes(word)) score += 8;
+            if (summary.includes(word)) score += 5;
+            if (type.includes(word)) score += 2;
+            if (label.includes(word)) score += 2;
+            if (combinedText.includes(word)) score += 1;
+        });
+
+        return {
+            ...topic,
+            score: score
+        };
+    });
+
+    return scoredTopics
+        .filter(topic => topic.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+}
+
+function getImportantQuestionWords(question) {
+    const stopWords = [
+        "what", "why", "how", "can", "could", "would", "should",
+        "the", "and", "for", "with", "from", "about", "tell",
+        "explain", "please", "need", "want", "using", "does",
+        "this", "that", "are", "you", "your", "give",
+        "show", "latest", "recent", "community", "topics", "topic",
+        "summarize", "summary", "overview", "brief", "all", "currently",
+        "discussed", "discussing", "new"
+    ];
+
+    const importantShortWords = ["ai"];
+
+    return String(question || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter(word => {
+            if (!word) return false;
+            if (stopWords.includes(word)) return false;
+            if (importantShortWords.includes(word)) return true;
+            return word.length > 2;
+        });
+}
+
+function cleanTopicText(value) {
+    return String(value || "")
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
         .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
         .replace(/\s+/g, " ")
         .trim();
-
-    if (!cleanText) {
-        return "this community topic contains useful information related to your question.";
-    }
-
-    const sentences = cleanText
-        .split(".")
-        .map(sentence => sentence.trim())
-        .filter(sentence => sentence.length > 20);
-
-    if (sentences.length === 0) {
-        return cleanText.slice(0, 250) + "...";
-    }
-
-    return sentences.slice(0, 2).join(". ") + ".";
 }
 
 app.post("/zia-chat", handleZiaChat);
@@ -744,6 +999,71 @@ app.get("/test-help-community", async function (req, res) {
             success: true,
             count: topics.length,
             data: topics
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.get("/zia-topic-sources", async function (req, res) {
+    try {
+        const question = String(req.query.question || "").trim();
+
+        const topics = await fetchHelpZohoCommunityTopics();
+
+let matches = [];
+
+if (isPopularQuestion(question)) {
+    matches = findPopularCommunityTopics(question, topics, 10);
+} else if (isSummaryQuestion(question)) {
+    matches = topics.slice(0, 10);
+} else if (question) {
+    matches = findBestCommunityTopicMatches(question, topics, 8);
+}
+
+if (!matches || matches.length === 0) {
+    matches = topics.slice(0, 10);
+}
+
+        res.json({
+            success: true,
+            question: question,
+            totalFetched: topics.length,
+            count: matches.length,
+            topics: matches.map(topic => ({
+                id: topic.id,
+                title: topic.title,
+                summary: topic.summary,
+                type: topic.type,
+                commentCount: topic.commentCount,
+                viewCount: topic.viewCount,
+                createdTime: topic.createdTime,
+                webUrl: topic.webUrl
+            }))
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.get("/test-zia-agent", async function (req, res) {
+    try {
+        const question = String(req.query.question || "What is new in Zia AI?");
+
+        const answer = await triggerZiaAgent(question);
+
+        res.json({
+            success: true,
+            question: question,
+            answer: answer
         });
 
     } catch (error) {

@@ -129,57 +129,68 @@ function sendZiaQuestion() {
                 return;
             }
 
-            if (!result.matches || result.matches.length === 0) {
-                addZiaMessage("I could not find a matching community topic. Please raise a ticket for help.", "bot");
-                return;
-            }
+if (!result.matches || result.matches.length === 0) {
+    const answerOnly = result.answer || "I could not find enough information to answer this.";
 
-            let html = `<strong>${escapeZiaHTML(result.answer)}</strong>`;
-            html += `<div class="zia-result-list">`;
+    addZiaMessage(
+        `<div class="zia-answer-text">${escapeZiaHTML(answerOnly)}</div>`,
+        "bot",
+        "",
+        true
+    );
 
-            result.matches.forEach(topic => {
-                const topicId = topic.id || "";
-                const topicTitle = topic.title || "Untitled community topic";
-                const topicSummary = topic.summary || "Open this community topic for more details.";
+    return;
+}
 
-                if (topicId) {
-                    const topicData = {
-                        id: topicId,
-                        title: topicTitle,
-                        summary: topicSummary,
-                        type: topic.type || "",
-                        label: topic.label || "",
-                        status: topic.status || "",
-                        likeCount: topic.likeCount || 0,
-                        commentCount: topic.commentCount || 0,
-                        createdTime: topic.createdTime || "",
-                        webUrl: topic.webUrl || topic.openUrl || topic.url || topic.link || topic.permalink || topic.href || ""
-                    };
+let html = `<div class="zia-answer-text">Here are the related community topics I found.</div>`;
+html += `<div class="zia-result-list">`;
 
-                    sessionStorage.setItem(
-                        "communityTopic_" + topicId,
-                        JSON.stringify(topicData)
-                    );
+result.matches.forEach(topic => {
+    const topicId = topic.id || "";
+    const topicTitle = topic.title || "Untitled community topic";
+    const topicSummary = topic.summary || "Open this community topic for more details.";
 
-                    html += `
-                        <a class="zia-result-link" href="community-topic.html?id=${encodeURIComponent(topicId)}">
-                            ${escapeZiaHTML(topicTitle)}
-                        </a>
+    if (topicId) {
+        const topicData = {
+            id: topicId,
+            title: topicTitle,
+            summary: topicSummary,
+            type: topic.type || "",
+            label: topic.label || "",
+            status: topic.status || "",
+            likeCount: topic.likeCount || 0,
+            commentCount: topic.commentCount || 0,
+            viewCount: topic.viewCount || 0,
+            createdTime: topic.createdTime || "",
+            webUrl: topic.webUrl || topic.openUrl || topic.url || topic.link || topic.permalink || topic.href || ""
+        };
 
-                        <p>${escapeZiaHTML(topicSummary)}</p>
-                    `;
-                } else {
-                    html += `
-                        <strong class="zia-result-link">${escapeZiaHTML(topicTitle)}</strong>
+        sessionStorage.setItem("communityTopic_" + topicId, JSON.stringify(topicData));
 
-                        <p>${escapeZiaHTML(topicSummary)}</p>
+        html += `
+            <div class="zia-topic-card">
+                <a class="zia-result-link" href="community-topic.html?id=${encodeURIComponent(topicId)}">
+                    ${escapeZiaHTML(topicTitle)}
+                </a>
 
-                        <small style="display:block; margin-top:6px; color:#666;">
-                            No topic ID available.
-                        </small>
-                    `;
-                }
-            });
+                <p>${escapeZiaHTML(topicSummary)}</p>
+
+                <small>
+                    Comments: ${escapeZiaHTML(topic.commentCount || 0)}
+                    | Views: ${escapeZiaHTML(topic.viewCount || 0)}
+                </small>
+
+                <a class="zia-view-details" href="community-topic.html?id=${encodeURIComponent(topicId)}">
+                    View details →
+                </a>
+            </div>
+        `;
+    }
+});
+
+html += `</div>`;
+
+addZiaMessage(html, "bot", "", true);
 
             html += `</div>`;
 

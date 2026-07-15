@@ -874,3 +874,73 @@ footer {
         bottom: 86px;
     }
 }
+
+.zia-answer-text {
+    white-space: pre-line;
+    line-height: 1.55;
+    font-weight: 500;
+}
+
+.zia-answer-text {
+    white-space: pre-line;
+    line-height: 1.55;
+    font-weight: 500;
+}
+
+.zia-topic-card {
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 10px;
+    margin-top: 10px;
+    background: #fff;
+}
+
+.zia-topic-card p {
+    margin: 6px 0;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.zia-topic-card small {
+    display: block;
+    color: #666;
+    margin-top: 6px;
+}
+
+.zia-view-details {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #c13b2a;
+    text-decoration: none;
+}
+
+.zia-topic-card {
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 10px;
+    margin-top: 10px;
+    background: #fff;
+}
+
+.zia-topic-card p {
+    margin: 6px 0;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.zia-topic-card small {
+    display: block;
+    color: #666;
+    margin-top: 6px;
+}
+
+.zia-view-details {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #c13b2a;
+    text-decoration: none;
+}
