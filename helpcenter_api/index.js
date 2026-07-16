@@ -57,6 +57,12 @@ let cachedZiaAccessTokenTime = 0;
 let cachedAccessToken = null;
 let cachedAccessTokenTime = 0;
 const ticketCache = {};
+let cachedCommunityTopics = null;
+let cachedCommunityTopicsTime = 0;
+
+const COMMUNITY_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_COMMUNITY_TOPICS = 300;
+const COMMUNITY_PAGE_LIMIT = 50;
 
 function request(method, hostname, path, headers, body) {
     return new Promise((resolve, reject) => {
@@ -507,6 +513,15 @@ function formatPublicCommunityTopic(topic) {
 }
 
 async function fetchHelpZohoCommunityTopics() {
+    const now = Date.now();
+
+    if (
+        cachedCommunityTopics &&
+        now - cachedCommunityTopicsTime < COMMUNITY_CACHE_MS
+    ) {
+        return cachedCommunityTopics;
+    }
+
     const portalId = "edbsn3857479fd7bb83e29368ff05a1860319f4481b7f04184d0e9b6e93712995a590";
 
     async function fetchPage(from) {
@@ -514,7 +529,7 @@ async function fetchHelpZohoCommunityTopics() {
             "/portal/api/communityTopics" +
             "?portalId=" + encodeURIComponent(portalId) +
             "&from=" + from +
-            "&limit=50" +
+            "&limit=" + COMMUNITY_PAGE_LIMIT +
             "&sortBy=createdTime" +
             "&isDescending=true";
 
@@ -542,12 +557,29 @@ async function fetchHelpZohoCommunityTopics() {
         return Array.isArray(response.data) ? response.data : [];
     }
 
-    const page1 = await fetchPage(1);
-    const page2 = await fetchPage(51);
+    let allTopics = [];
 
-    const allTopics = page1.concat(page2).slice(0, 100);
+    for (let from = 1; from <= MAX_COMMUNITY_TOPICS; from += COMMUNITY_PAGE_LIMIT) {
+        const pageTopics = await fetchPage(from);
 
-    return allTopics.map(formatPublicCommunityTopic);
+        if (!pageTopics || pageTopics.length === 0) {
+            break;
+        }
+
+        allTopics = allTopics.concat(pageTopics);
+
+        if (pageTopics.length < COMMUNITY_PAGE_LIMIT) {
+            break;
+        }
+    }
+
+    cachedCommunityTopics = allTopics
+        .slice(0, MAX_COMMUNITY_TOPICS)
+        .map(formatPublicCommunityTopic);
+
+    cachedCommunityTopicsTime = now;
+
+    return cachedCommunityTopics;
 }
 
 
@@ -667,133 +699,317 @@ function extractZiaAgentAnswer(response) {
 }
 
 
+function cleanTopicText(value) {
+    return String(value || "")
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function normalizeText(value) {
+    return cleanTopicText(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function safeNumber(value) {
+    const numberValue = Number(value || 0);
+    return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
 function isSummaryQuestion(question) {
-    const text = String(question || "").toLowerCase();
+    const text = normalizeText(question);
 
     return (
         text.includes("summarize") ||
         text.includes("summary") ||
         text.includes("overview") ||
         text.includes("brief") ||
-        text.includes("currently discussed") ||
+        text.includes("main themes") ||
         text.includes("main things discussed") ||
+        text.includes("currently discussed") ||
         text.includes("what are they discussing")
     );
 }
 
-function shouldShowTopicLinks(question) {
-    const text = String(question || "").toLowerCase();
-
-    if (isSummaryQuestion(question)) {
-        return false;
-    }
+function isMostDiscussedQuestion(question) {
+    const text = normalizeText(question);
 
     return (
-        text.includes("list") ||
-        text.includes("show related") ||
-        text.includes("show topics") ||
-        text.includes("show community topics") ||
-        text.includes("source") ||
-        text.includes("sources") ||
-        text.includes("reference") ||
-        text.includes("references") ||
-        text.includes("links") ||
-        text.includes("related topics")
+        text.includes("most discussed") ||
+        text.includes("highly discussed") ||
+        text.includes("more discussed") ||
+        text.includes("active discussions") ||
+        text.includes("discussion activity")
     );
 }
 
-function isSummaryQuestion(question) {
-    const text = String(question || "").toLowerCase();
+function isMostViewedQuestion(question) {
+    const text = normalizeText(question);
 
     return (
-        text.includes("summarize") ||
-        text.includes("summary") ||
-        text.includes("overview") ||
-        text.includes("brief") ||
-        text.includes("currently discussed") ||
-        text.includes("main things discussed") ||
-        text.includes("what are they discussing")
+        text.includes("most viewed") ||
+        text.includes("highest views") ||
+        text.includes("top viewed") ||
+        text.includes("viewed topics")
+    );
+}
+
+function isMostLikedQuestion(question) {
+    const text = normalizeText(question);
+
+    return (
+        text.includes("most liked") ||
+        text.includes("highest likes") ||
+        text.includes("top liked")
     );
 }
 
 function isPopularQuestion(question) {
-    const text = String(question || "").toLowerCase();
+    const text = normalizeText(question);
 
     return (
         text.includes("popular") ||
         text.includes("trending") ||
-        text.includes("top") ||
-        text.includes("most viewed") ||
-        text.includes("most discussed") ||
+        text.includes("treding") ||
+        text.includes("top topics") ||
         text.includes("active topics") ||
-        text.includes("highly discussed")
+        isMostDiscussedQuestion(question) ||
+        isMostViewedQuestion(question) ||
+        isMostLikedQuestion(question)
     );
 }
 
 function shouldShowTopicLinks(question) {
-    const text = String(question || "").toLowerCase();
+    const text = normalizeText(question);
 
+    // Summary questions should not show cards.
     if (isSummaryQuestion(question)) {
         return false;
     }
 
-    if (isPopularQuestion(question)) {
-        return true;
-    }
-
-    return (
+    const asksToShowOrList =
+        text.includes("show") ||
         text.includes("list") ||
-        text.includes("show related") ||
-        text.includes("show topics") ||
-        text.includes("show community topics") ||
+        text.includes("give me") ||
+        text.includes("display");
+
+    const asksForTopicCards =
+        text.includes("topic") ||
+        text.includes("topics") ||
+        text.includes("community topic") ||
+        text.includes("community topics") ||
         text.includes("source") ||
         text.includes("sources") ||
         text.includes("reference") ||
         text.includes("references") ||
         text.includes("links") ||
+        text.includes("related");
+
+    // This fixes:
+    // "list most discussed topics"
+    // "show most viewed topics"
+    // "list popular topics"
+    // "show trending topics"
+    if (asksToShowOrList && (asksForTopicCards || isPopularQuestion(question))) {
+        return true;
+    }
+
+    return (
+        text.includes("show related") ||
+        text.includes("show popular") ||
+        text.includes("show trending") ||
+        text.includes("source topics") ||
+        text.includes("reference topics") ||
         text.includes("related topics")
     );
 }
 
-function getTopicPopularityScore(topic) {
-    const comments = Number(topic.commentCount || 0);
-    const views = Number(topic.viewCount || 0);
-    const likes = Number(topic.likeCount || 0);
+function getProductKeywords(question) {
+    const text = normalizeText(question);
 
-    return comments * 5 + likes * 3 + views;
+    const productMap = {
+        "zoho recruit": ["zoho recruit", "recruit", "recruitment", "recruiter", "hiring", "recruite", "recuruite", "recurit"],
+        "zoho desk": ["zoho desk", "desk", "support", "ticket", "tickets", "desk ai"],
+        "zoho crm": ["zoho crm", "crm", "lead", "leads", "deal", "deals"],
+        "zia": ["zia", "ai", "agent", "agents", "desk ai", "automation"],
+        "zoho creator": ["zoho creator", "creator", "deluge", "app builder"],
+        "zoho catalyst": ["zoho catalyst", "catalyst", "serverless", "function"],
+        "zoho books": ["zoho books", "books", "accounting"],
+        "zoho billing": ["zoho billing", "billing", "subscription", "subscriptions"],
+        "zoho inventory": ["zoho inventory", "inventory", "stock", "warehouse"],
+        "zoho projects": ["zoho projects", "projects", "task", "tasks", "milestone"],
+        "zoho mail": ["zoho mail", "mail", "email"],
+        "api": ["api", "apis", "oauth", "integration", "integrations", "developer", "developers", "webhook", "webhooks"]
+    };
+
+    let keywords = [];
+
+    Object.keys(productMap).forEach(productName => {
+        const normalizedProductName = normalizeText(productName);
+        const normalizedWords = productMap[productName].map(normalizeText);
+
+        const matched = text.includes(normalizedProductName) ||
+            normalizedWords.some(word => text.includes(word));
+
+        if (matched) {
+            keywords = keywords.concat(normalizedWords);
+        }
+    });
+
+    return [...new Set(keywords.filter(Boolean))];
+}
+
+function getImportantQuestionWords(question) {
+    const stopWords = [
+        "what", "why", "how", "can", "could", "would", "should",
+        "the", "and", "for", "with", "from", "about", "tell",
+        "explain", "please", "need", "want", "using", "does",
+        "this", "that", "are", "you", "your", "give", "me",
+        "show", "latest", "lately", "latestly", "recent", "community",
+        "topics", "topic", "summarize", "summary", "overview",
+        "brief", "all", "currently", "discussed", "discussing",
+        "new", "most", "popular", "trending", "treding", "viewed",
+        "active", "related", "source", "sources", "links", "list",
+        "zoho"
+    ];
+
+    const importantShortWords = ["ai"];
+
+    return normalizeText(question)
+        .split(/\s+/)
+        .filter(word => {
+            if (!word) return false;
+            if (stopWords.includes(word)) return false;
+            if (importantShortWords.includes(word)) return true;
+            return word.length > 2;
+        });
+}
+
+function getTopicSearchText(topic) {
+    return normalizeText(
+        [
+            topic.title,
+            topic.summary,
+            topic.type,
+            topic.label,
+            topic.status
+        ].join(" ")
+    );
+}
+
+function getTopicPopularityScore(topic, question) {
+    const comments = safeNumber(topic.commentCount);
+    const views = safeNumber(topic.viewCount);
+    const likes = safeNumber(topic.likeCount);
+
+    if (isMostDiscussedQuestion(question)) {
+        return comments * 1000 + views * 2 + likes * 10;
+    }
+
+    if (isMostViewedQuestion(question)) {
+        return views * 100 + comments * 20 + likes * 10;
+    }
+
+    if (isMostLikedQuestion(question)) {
+        return likes * 1000 + comments * 20 + views;
+    }
+
+    return comments * 50 + likes * 20 + views;
+}
+
+function getTopicRelevanceScore(question, topic) {
+    const fullQuestion = normalizeText(question);
+    const title = normalizeText(topic.title);
+    const summary = normalizeText(topic.summary);
+    const combinedText = getTopicSearchText(topic);
+
+    const words = getImportantQuestionWords(question);
+    const productKeywords = getProductKeywords(question);
+
+    let score = 0;
+
+    if (fullQuestion && title.includes(fullQuestion)) score += 80;
+    if (fullQuestion && summary.includes(fullQuestion)) score += 50;
+
+    productKeywords.forEach(keyword => {
+        if (title.includes(keyword)) score += 45;
+        if (summary.includes(keyword)) score += 30;
+        if (combinedText.includes(keyword)) score += 12;
+    });
+
+    words.forEach(word => {
+        if (title.includes(word)) score += 16;
+        if (summary.includes(word)) score += 10;
+        if (combinedText.includes(word)) score += 3;
+    });
+
+    const wantsZiaAi =
+        fullQuestion.includes("zia") ||
+        fullQuestion.includes("ai") ||
+        fullQuestion.includes("agent") ||
+        fullQuestion.includes("agents");
+
+    if (wantsZiaAi) {
+        if (title.includes("zia")) score += 35;
+        if (summary.includes("zia")) score += 25;
+        if (title.includes("ai")) score += 25;
+        if (summary.includes("ai")) score += 18;
+        if (title.includes("agent")) score += 18;
+        if (summary.includes("agent")) score += 12;
+        if (title.includes("desk")) score += 8;
+        if (summary.includes("desk")) score += 5;
+    }
+
+    if (isPopularQuestion(question)) {
+        score += Math.min(getTopicPopularityScore(topic, question) / 25, 100);
+    }
+
+    return score;
+}
+
+function findBestCommunityTopicMatches(question, topics, limit) {
+    const scoredTopics = topics.map(topic => {
+        return {
+            ...topic,
+            score: getTopicRelevanceScore(question, topic)
+        };
+    });
+
+    return scoredTopics
+        .filter(topic => topic.score > 0)
+        .sort((a, b) => {
+            if (b.score !== a.score) {
+                return b.score - a.score;
+            }
+
+            return String(b.createdTime || "").localeCompare(String(a.createdTime || ""));
+        })
+        .slice(0, limit);
 }
 
 function findPopularCommunityTopics(question, topics, limit) {
-    const words = getImportantQuestionWords(question);
-
-    const productWords = words.filter(word => {
-        return ![
-            "popular",
-            "trending",
-            "most",
-            "viewed",
-            "discussed",
-            "active",
-            "highly",
-            "top"
-        ].includes(word);
-    });
+    const productKeywords = getProductKeywords(question);
 
     let filteredTopics = topics;
 
-    if (productWords.length > 0) {
+    if (productKeywords.length > 0) {
         const productMatches = topics.filter(topic => {
-            const text = (
-                cleanTopicText(topic.title) +
-                " " +
-                cleanTopicText(topic.summary) +
-                " " +
-                cleanTopicText(topic.type) +
-                " " +
-                cleanTopicText(topic.label)
-            ).toLowerCase();
+            const text = getTopicSearchText(topic);
 
-            return productWords.some(word => text.includes(word));
+            return productKeywords.some(keyword => {
+                return text.includes(keyword);
+            });
         });
 
         if (productMatches.length > 0) {
@@ -803,8 +1019,25 @@ function findPopularCommunityTopics(question, topics, limit) {
 
     return filteredTopics
         .slice()
-        .sort((a, b) => getTopicPopularityScore(b) - getTopicPopularityScore(a))
+        .sort((a, b) => {
+            const scoreB = getTopicPopularityScore(b, question);
+            const scoreA = getTopicPopularityScore(a, question);
+
+            if (scoreB !== scoreA) {
+                return scoreB - scoreA;
+            }
+
+            return String(b.createdTime || "").localeCompare(String(a.createdTime || ""));
+        })
         .slice(0, limit);
+}
+
+function selectCommunityTopics(question, topics, limit) {
+    if (isPopularQuestion(question)) {
+        return findPopularCommunityTopics(question, topics, limit);
+    }
+
+    return findBestCommunityTopicMatches(question, topics, limit);
 }
 
 async function handleZiaChat(req, res) {
@@ -833,18 +1066,20 @@ async function handleZiaChat(req, res) {
 
         let sourceMatches = [];
 
-if (shouldShowTopicLinks(question)) {
-    try {
-        const topics = await fetchHelpZohoCommunityTopics();
-        sourceMatches = findBestCommunityTopicMatches(question, topics, 5);
+        if (shouldShowTopicLinks(question)) {
+            try {
+                const topics = await fetchHelpZohoCommunityTopics();
 
-        if (!sourceMatches || sourceMatches.length === 0) {
-            sourceMatches = topics.slice(0, 5);
+                sourceMatches = selectCommunityTopics(question, topics, 5);
+
+                if (!sourceMatches || sourceMatches.length === 0) {
+                    sourceMatches = topics.slice(0, 5);
+                }
+            } catch (sourceError) {
+                sourceMatches = [];
+            }
         }
-    } catch (sourceError) {
-        sourceMatches = [];
-    }
-}
+
         res.json({
             answer: ziaAnswer || "Zia Agent returned an empty answer.",
             matches: sourceMatches,
@@ -857,103 +1092,6 @@ if (shouldShowTopicLinks(question)) {
             details: error.message
         });
     }
-}
-
-function findBestCommunityTopicMatches(question, topics, limit) {
-    const words = getImportantQuestionWords(question);
-    const fullQuestion = String(question || "").toLowerCase();
-
-    const wantsZiaAi =
-        fullQuestion.includes("zia") ||
-        fullQuestion.includes("ai") ||
-        fullQuestion.includes("agent") ||
-        fullQuestion.includes("agents");
-
-    const scoredTopics = topics.map(topic => {
-        const title = cleanTopicText(topic.title).toLowerCase();
-        const summary = cleanTopicText(topic.summary).toLowerCase();
-        const type = cleanTopicText(topic.type).toLowerCase();
-        const label = cleanTopicText(topic.label).toLowerCase();
-
-        const combinedText = title + " " + summary + " " + type + " " + label;
-
-        let score = 0;
-
-        if (title.includes(fullQuestion)) score += 30;
-        if (summary.includes(fullQuestion)) score += 20;
-
-        if (wantsZiaAi) {
-            if (title.includes("zia")) score += 25;
-            if (summary.includes("zia")) score += 18;
-
-            if (title.includes("ai")) score += 20;
-            if (summary.includes("ai")) score += 14;
-
-            if (title.includes("agent")) score += 12;
-            if (summary.includes("agent")) score += 8;
-
-            if (title.includes("desk")) score += 6;
-            if (summary.includes("desk")) score += 4;
-        }
-
-        words.forEach(word => {
-            if (title.includes(word)) score += 8;
-            if (summary.includes(word)) score += 5;
-            if (type.includes(word)) score += 2;
-            if (label.includes(word)) score += 2;
-            if (combinedText.includes(word)) score += 1;
-        });
-
-        return {
-            ...topic,
-            score: score
-        };
-    });
-
-    return scoredTopics
-        .filter(topic => topic.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit);
-}
-
-function getImportantQuestionWords(question) {
-    const stopWords = [
-        "what", "why", "how", "can", "could", "would", "should",
-        "the", "and", "for", "with", "from", "about", "tell",
-        "explain", "please", "need", "want", "using", "does",
-        "this", "that", "are", "you", "your", "give",
-        "show", "latest", "recent", "community", "topics", "topic",
-        "summarize", "summary", "overview", "brief", "all", "currently",
-        "discussed", "discussing", "new"
-    ];
-
-    const importantShortWords = ["ai"];
-
-    return String(question || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, " ")
-        .split(/\s+/)
-        .filter(word => {
-            if (!word) return false;
-            if (stopWords.includes(word)) return false;
-            if (importantShortWords.includes(word)) return true;
-            return word.length > 2;
-        });
-}
-
-function cleanTopicText(value) {
-    return String(value || "")
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/\s+/g, " ")
-        .trim();
 }
 
 app.post("/zia-chat", handleZiaChat);
@@ -1015,19 +1153,21 @@ app.get("/zia-topic-sources", async function (req, res) {
 
         const topics = await fetchHelpZohoCommunityTopics();
 
-let matches = [];
+        let matches = [];
 
-if (isPopularQuestion(question)) {
-    matches = findPopularCommunityTopics(question, topics, 10);
-} else if (isSummaryQuestion(question)) {
-    matches = topics.slice(0, 10);
-} else if (question) {
-    matches = findBestCommunityTopicMatches(question, topics, 8);
-}
+        if (isSummaryQuestion(question) && isPopularQuestion(question)) {
+            matches = findPopularCommunityTopics(question, topics, 10);
+        } else if (isSummaryQuestion(question)) {
+            matches = topics.slice(0, 10);
+        } else if (question) {
+            matches = selectCommunityTopics(question, topics, 10);
+        } else {
+            matches = topics.slice(0, 10);
+        }
 
-if (!matches || matches.length === 0) {
-    matches = topics.slice(0, 10);
-}
+        if (!matches || matches.length === 0) {
+            matches = topics.slice(0, 10);
+        }
 
         res.json({
             success: true,
@@ -1039,6 +1179,9 @@ if (!matches || matches.length === 0) {
                 title: topic.title,
                 summary: topic.summary,
                 type: topic.type,
+                label: topic.label,
+                status: topic.status,
+                likeCount: topic.likeCount,
                 commentCount: topic.commentCount,
                 viewCount: topic.viewCount,
                 createdTime: topic.createdTime,
@@ -1053,7 +1196,6 @@ if (!matches || matches.length === 0) {
         });
     }
 });
-
 app.get("/test-zia-agent", async function (req, res) {
     try {
         const question = String(req.query.question || "What is new in Zia AI?");
