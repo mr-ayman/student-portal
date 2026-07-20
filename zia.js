@@ -80,16 +80,39 @@ function sendZiaQuestion() {
 
     addZiaMessage("Searching latest community topics...", "bot", "ziaLoadingMessage");
 
-    fetch(ZIA_API_BASE + "/zia-chat", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-            "Content-Type": "text/plain"
-        },
-        body: JSON.stringify({
-            question: question
-        })
-    })
+    const topicIdFromUrl = new URLSearchParams(window.location.search).get("id") || "";
+
+let currentTopic = {};
+
+if (topicIdFromUrl) {
+    try {
+        currentTopic = JSON.parse(
+            sessionStorage.getItem("communityTopic_" + topicIdFromUrl) || "{}"
+        );
+    } catch (e) {
+        currentTopic = {};
+    }
+}
+
+if (window.currentCommunityTopic) {
+    currentTopic = window.currentCommunityTopic;
+}
+
+const ziaPayload = {
+    question: question,
+    topicId: topicIdFromUrl || currentTopic.id || "",
+    topicTitle: currentTopic.title || "",
+    topicSummary: currentTopic.summary || ""
+};
+
+fetch(ZIA_API_BASE + "/zia-chat", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+        "Content-Type": "text/plain"
+    },
+    body: JSON.stringify(ziaPayload)
+})
         .then(async response => {
             const text = await response.text();
 

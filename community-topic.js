@@ -5,6 +5,7 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 
 function loadCommunityTopic() {
+
     const params = new URLSearchParams(window.location.search);
     const topicId = params.get("id");
 
@@ -52,6 +53,7 @@ function loadCommunityTopic() {
 }
 
 function showTopic(topic) {
+    window.currentCommunityTopic = topic;
     const titleBox = document.getElementById("topicTitle");
     const metaBox = document.getElementById("topicMeta");
     const contentBox = document.getElementById("topicContent");

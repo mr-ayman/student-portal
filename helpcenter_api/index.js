@@ -742,6 +742,26 @@ function isSummaryQuestion(question) {
     );
 }
 
+function isTopicDiscussionSummaryQuestion(question) {
+    const text = normalizeText(question);
+
+    return (
+        text.includes("summarize discussion") ||
+        text.includes("summarize the discussion") ||
+        text.includes("summarize comments") ||
+        text.includes("summarize the comments") ||
+        text.includes("summarize replies") ||
+        text.includes("what are people saying") ||
+        text.includes("what people are saying") ||
+        text.includes("what are users saying") ||
+        text.includes("what users are saying") ||
+        text.includes("discussion from this topic") ||
+        text.includes("comments from this topic") ||
+        text.includes("replies from this topic") ||
+        text.includes("main issue discussed here")
+    );
+}
+
 function isMostDiscussedQuestion(question) {
     const text = normalizeText(question);
 
@@ -1040,6 +1060,111 @@ function selectCommunityTopics(question, topics, limit) {
     return findBestCommunityTopicMatches(question, topics, limit);
 }
 
+function formatCommunityComment(comment) {
+    return {
+        id: String(comment.id || comment.commentId || "").trim(),
+        content: cleanTopicText(
+            comment.content ||
+            comment.comment ||
+            comment.description ||
+            comment.message ||
+            comment.body ||
+            comment.text ||
+            ""
+        ),
+        createdTime: comment.createdTime || comment.modifiedTime || "",
+        author: cleanTopicText(
+            comment.author?.name ||
+            comment.user?.name ||
+            comment.createdBy?.name ||
+            comment.creator?.name ||
+            ""
+        )
+    };
+}
+
+async function fetchCommunityTopicComments(topicId) {
+    const portalId = "edbsn3857479fd7bb83e29368ff05a1860319f4481b7f04184d0e9b6e93712995a590";
+
+    const possiblePaths = [
+        "/portal/api/communityTopics/" + encodeURIComponent(topicId) + "/comments" +
+        "?portalId=" + encodeURIComponent(portalId) +
+        "&from=1&limit=50",
+
+        "/portal/api/communityTopicComments" +
+        "?portalId=" + encodeURIComponent(portalId) +
+        "&topicId=" + encodeURIComponent(topicId) +
+        "&from=1&limit=50",
+
+        "/portal/api/communityComments" +
+        "?portalId=" + encodeURIComponent(portalId) +
+        "&topicId=" + encodeURIComponent(topicId) +
+        "&from=1&limit=50"
+    ];
+
+    for (const apiPath of possiblePaths) {
+        const result = await request(
+            "GET",
+            "help.zoho.com",
+            apiPath,
+            {
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 StudentSupportPortal/1.0",
+                "Referer": "https://help.zoho.com/portal/en/community"
+            }
+        );
+
+        if (result.statusCode >= 200 && result.statusCode < 300) {
+            const response = result.data || {};
+
+            const possibleArrays = [
+                response.data,
+                response.comments,
+                response.replies,
+                response.commentList
+            ];
+
+            const commentRows = possibleArrays.find(item => Array.isArray(item)) || [];
+
+            const comments = commentRows
+                .map(formatCommunityComment)
+                .filter(comment => comment.content);
+
+            if (comments.length > 0) {
+                return comments;
+            }
+        }
+    }
+
+    return [];
+}
+
+function buildTopicDiscussionPrompt(topic, comments) {
+    let prompt = "";
+
+    prompt += "Summarize the discussion in this Zoho Community topic.\n\n";
+    prompt += "Topic title: " + (topic.title || "Untitled topic") + "\n\n";
+    prompt += "Topic content:\n" + cleanTopicText(topic.summary || "") + "\n\n";
+
+    if (!comments || comments.length === 0) {
+        prompt += "No actual comment text was available from the API. ";
+        prompt += "Summarize only from the topic title and content. ";
+        prompt += "Clearly mention that comment text was not available.";
+        return prompt;
+    }
+
+    prompt += "User comments/replies:\n";
+
+    comments.slice(0, 30).forEach((comment, index) => {
+        prompt += `${index + 1}. ${comment.content}\n`;
+    });
+
+    prompt += "\nGive a clear summary of what people are discussing. ";
+    prompt += "Mention the main issue, repeated concerns, suggested solutions, and overall discussion direction. ";
+    prompt += "Do not invent anything outside the topic and comments.";
+
+    return prompt;
+}
 async function handleZiaChat(req, res) {
     try {
         await getLoggedInUser(req);
@@ -1055,13 +1180,42 @@ async function handleZiaChat(req, res) {
         }
 
         const question = String(bodyData.question || "").trim();
+        const topicId = String(bodyData.topicId || "").trim();
+        const topicTitle = String(bodyData.topicTitle || "").trim();
+        const topicSummary = String(bodyData.topicSummary || "").trim();
 
         if (!question) {
             return res.status(400).json({
                 error: "Question is required"
             });
         }
+        if (topicId && isTopicDiscussionSummaryQuestion(question)) {
+    const topics = await fetchHelpZohoCommunityTopics();
 
+    let topic = topics.find(item => String(item.id) === String(topicId));
+
+    if (!topic) {
+        topic = {
+            id: topicId,
+            title: topicTitle || "Selected community topic",
+            summary: topicSummary || ""
+        };
+    }
+
+    const comments = await fetchCommunityTopicComments(topicId);
+
+    const discussionPrompt = buildTopicDiscussionPrompt(topic, comments);
+
+    const discussionAnswer = await triggerZiaAgent(discussionPrompt);
+
+    return res.json({
+        answer: discussionAnswer || "I could not summarize this topic discussion.",
+        matches: [],
+        poweredBy: "Zia Agent",
+        topicMode: true,
+        commentCountUsed: comments.length
+    });
+}
         const ziaAnswer = await triggerZiaAgent(question);
 
         let sourceMatches = [];
@@ -1093,6 +1247,7 @@ async function handleZiaChat(req, res) {
         });
     }
 }
+
 
 app.post("/zia-chat", handleZiaChat);
 app.post("/zia", handleZiaChat);
@@ -1206,6 +1361,34 @@ app.get("/test-zia-agent", async function (req, res) {
             success: true,
             question: question,
             answer: answer
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.get("/test-topic-comments", async function (req, res) {
+    try {
+        const topicId = String(req.query.id || "").trim();
+
+        if (!topicId) {
+            return res.status(400).json({
+                success: false,
+                error: "Topic ID is required"
+            });
+        }
+
+        const comments = await fetchCommunityTopicComments(topicId);
+
+        res.json({
+            success: true,
+            topicId: topicId,
+            count: comments.length,
+            comments: comments
         });
 
     } catch (error) {
